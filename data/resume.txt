@@ -1,14 +1,76 @@
-TITLE
-Michael Samuel — Mobile Developer
-
-SUMMARY
-Experienced mobile engineer focused on shipping reliable iOS and Android apps with measurable quality improvements, strong collaboration with product and design, and disciplined release practices.
-
-SKILLS
-Swift, Kotlin, Firebase, REST APIs, Git, CI basics, profiling, logging, App Store / Play Console
-
-EXPERIENCE
-- Owned feature delivery end-to-end: requirements, implementation, release, and post-release monitoring.
-- Reduced crashes and latency using profiling, structured logging, feature flags, and careful rollout.
-- Partnered with backend teams on REST contracts, error handling, and performance-sensitive mobile flows.
-- Mentored junior developers on code review, testing habits, and release hygiene.
+MICHAEL SAMUEL NAEEM
+Senior Android Engineer | Mobile Architecture & Real-time Systems
+Cairo, Egypt · Open to Remote (US / EU / UK, flexible hours) · michaelsam00@yahoo.com · +20 109 800 2198
+LinkedIn · GitHub (michaelsam94) · Portfolio
+PROFESSIONAL SUMMARY
+Senior Android Engineer focused on scalable mobile architecture and real-time features, with experience integrating
+backend and IoT systems where cross-stack coordination was required. 10+ years building production Android
+applications across fintech, robotics, EV infrastructure, and marketplace domains. Comfortable owning technical decisions,
+leading small teams, and working within real delivery constraints.
+CORE SKILLS
+Android & Mobile: Kotlin, Jetpack Compose, Android SDK, MVVM, Clean Architecture, Multi-module, XML, Android app
+development
+Architecture: Clean Architecture, SOLID, Multi-module scaling, mobile application architecture
+Async & DI: Coroutines, StateFlow, Flow, RxJava, Hilt, Dagger 2, Koin
+Networking: REST API integration, Retrofit, OkHttp, WebSocket, gRPC
+Real-time & Media: WebRTC, ExoPlayer, low-latency socket systems, event-driven architecture
+Quality & DevOps: TDD, JUnit, Mockito, Espresso, CI/CD, Firebase, Crashlytics, Git
+Backend (supporting): FastAPI, Node.js, OCPP v1.6 — coordination role, not primary focus
+FEATURED PROJECT
+MegaPlug — EV Charging Management Platform · Google Play
+Production Android app for real-time EV charging station monitoring and control, live on Google Play. Key engineering
+challenges: reliable OCPP v1.6 communication over unstable 4G (mitigated with offline command queueing and retry
+logic), real-time station status via WebSocket, and synchronizing mobile UI state with physical hardware events. Built with
+Flutter, FastAPI backend, and Node.js WebSocket middleware.
+PROFESSIONAL EXPERIENCE
+Android Tech Lead Jun 2024 – Present
+Tadafuq · Cairo, On-site
+• Led Android development and system integration for an EV Charging Management Platform — coordinated 6
+engineers across mobile, backend, and IoT; responsible for architecture decisions and delivery across two live station
+networks.
+• Introduced ADR framework and architecture standards across 3 product lines — reduced integration issues by ~40%
+by standardizing service contracts and communication patterns.
+• Chose OCPP over MQTT for charging session management based on built-in lifecycle support; designed offline retry
+queue to handle 4G connection drops at station sites.
+Senior Android Developer Jun 2023 – Jun 2024
+Communico · Remote
+• Built Android platform for humanoid robots (CRUZR, Pepper) at NEOM City — integrated GPT-4 intent recognition
+with STT pre-processing tuned for noisy public environments, reducing human fallback by 35%.
+• Integrated 4+ robot SDKs with no documentation — defined integration patterns through systematic reverse
+engineering and production testing.
+Senior Android Developer Jun 2022 – Jun 2023
+Mazaady · Remote
+• Owned Android architecture of Doworkss (240+ category marketplace in Jetpack Compose + Clean Architecture) —
+shipped MVP in under 3 months with a 2-engineer team.
+• Resolved persistent ANR issues on the live auction app (~120k MAU) by moving DB/network calls off the main thread
+and replacing GlobalScope coroutines with lifecycle-scoped alternatives — ANR rate dropped to <0.1%.
+Senior Android Developer Sep 2020 – May 2022
+Rowaad · Cairo, Hybrid
+• Led migration of 15+ module MVP codebase to MVVM + Clean Architecture — trade-off of 3 sprints accepted by
+product team; onboarding cut from 3 weeks to 1 week.
+• Introduced PR reviews and TDD (JUnit + Mockito) across a 4-engineer team — ~70% unit test coverage on core
+logic; mentored 2 engineers both promoted to Senior within 18 months.
+Android Developer Apr 2018 – Aug 2020
+Ready Apps · Cairo, On-site
+• Built Firebase + Google Maps pharmacy locator for 50k+ users across 100+ branches — reduced average search
+time by 50% and grew DAU by 10% within 3 months.
+• Delivered real-time inventory and sales monitoring apps for 100+ locations — reduced manual reporting effort by
+~60%; 5+ production apps across health, retail, and logistics.
+Android Developer 2016 – 2018
+EME International & Pan Arab Media · Cairo, On-site
+• Built myFawry eWallet bus reservation module — 10,000+ monthly transactions, hardware printer integration, multi-
+flavor builds for 3 banking clients.
+• Delivered e-commerce Android app end-to-end and Android TV client using Leanback library for 10-foot remote
+navigation.
+TECHNICAL TOOLING
+Languages: Kotlin, Java, Dart (Flutter), Python
+Android / Jetpack: Jetpack Compose, XML, ViewModel, LiveData, Room, Navigation, Paging 3, WorkManager, CameraX
+Concurrency & DI: Coroutines, StateFlow, Flow, RxJava, Hilt, Dagger 2, Koin
+Networking: Retrofit, OkHttp, WebSocket, REST, gRPC, OCPP v1.6, MQTT
+AI & Media: OpenAI GPT-4, STT/TTS, ExoPlayer, WebRTC
+Backend: FastAPI, Pydantic, Node.js
+Tools & QA: Git, CI/CD, Jenkins, Gradle, Firebase, Crashlytics, JUnit, Mockito, Espresso, TDD
+EDUCATION & CERTIFICATIONS
+B.Sc. Computer Science — Cairo University (2012 – 2016)
+• Android Developer Nanodegree — Udacity (2017)
+• Mobile Application Launchpad — MCIT & Google via Udacity (2016)

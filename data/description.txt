@@ -1,1 +1,52 @@
-We are hiring a senior mobile developer to own features on our iOS and Android apps. You will work closely with product and backend teams, ship REST integrations, and improve performance and crash rates. Experience with Swift, Kotlin, Firebase, and solid CI/release practices is a strong plus.
+About the job
+Who are we? 
+
+Since launching in Kuwait in 2004, talabat, the leading on-demand food and
+
+Q-commerce app for everyday deliveries, has been offering convenience and reliability
+
+to its customers. talabat’s local roots run deep, offering a real understanding of the needs of the communities we serve in eight countries across the region. We harness innovative technology and knowledge to simplify everyday life for our customers, optimize operations for our restaurants and local shops, and provide our
+
+riders with reliable earning opportunities daily. Here at talabat, we are building a high performance culture through engaged workforce and growing talent density. We're all about keeping it real and making a difference. Our
+
+6,000+ strong talabaty are on an awesome mission to spread positive vibes. We are proud to be a multi great place to work award winner.
+
+A Little Bit About Our Engineering Culture
+
+Shorten Feedback Loops: we optimize for flow of value in small batches so that we can learn faster and minimize waste. This applies to how we build systems, communicate with each other, etc
+
+Quality enables Speed: we adhere to XP, Lean, and Continuous Delivery practices to deliver value with the highest quality/security in a sustainable way
+
+Product-minded Engineers: we all have a good understanding of our business & customer problems to minimize costly hand-overs and ensure we solve problems more effectively, and faster
+
+Job Description
+
+Role Summary
+
+Alongside your cross-functional team (engineering, product, data), participate in continuous discovery of your customer/business needs/desires/problems to drive desired outcomes.
+Design, write and release software as a solution to an end-to-end problem in your business domain and deliver value in small batches in accordance with our engineering standards
+Understand scalability & complexity of your services and own & innovate the entire SDLC
+Support optimization of your team’s practices to develop it into a self-organized continuously improving unit
+Critically question and simplify our tech org systems/processes and solutions
+
+Note
+
+On top of very good technical skills, this role requires someone willing to assume end-to-end
+
+ownership of a specific area/initiative and thrives on emphasizing with their user pains/desires/needs. You are keen to explore alternative ways of working that optimize for co-creation and continuous improvement.
+
+Qualifications
+
+Empathetic and able to easily build relationships
+Good verbal and written communication skills
+Humble, curious, and open-minded with a growth mindset, thriving on continuous
+feedback
+Understanding of lean/agile values & principles and associated practices
+3+ years of software engineering experience, preferably within Extreme Programming environment (TDD, Pair Programming, Simple Design, and Continuous Refactoring) with predominant languages being .NET, Golang, and C#
+Experience in testing with focus on automated end to end quality.
+Experience in distributed Systems Architecture (Microservices, Event-Driven, and RESTful Services)
+Experience working with relational and nonrelational databases
+Exposed to cloud platforms (e.g. AWS, Google Cloud, Azure)
+Experience building, maintaining and improving with Trunk Based Development and Continuous Delivery.
+
+

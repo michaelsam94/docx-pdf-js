@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,17 +8,24 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 /**
  * Optional LLM pass: tailors resume + job description into structured CV fields.
  *
- * Providers:
- * - **cursor** — `CURSOR_API_KEY` + Cursor [Cloud Agents API](https://api.cursor.com): launches an agent
- *   on a GitHub repo (`CURSOR_REPOSITORY` or auto from `git remote get-url origin`), polls until FINISHED,
- *   then reads JSON from the agent conversation.
- * - **openai** / **anthropic** — direct HTTP APIs (same keys you can add in Cursor → Settings → Models).
+ * **OpenAI** — `OPENAI_API_KEY` + `https://api.openai.com/v1/chat/completions` (or any OpenAI-compatible
+ * base URL via `OPENAI_BASE_URL`).
+ *
+ * **Anthropic** — `ANTHROPIC_API_KEY` + Messages API.
+ *
+ * **Gemini** — `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) + Google AI `generateContent` (`GEMINI_MODEL`, default `gemini-flash-latest`).
+ *
+ * These are the same kinds of keys you can add in **Cursor → Settings → Models**. Cursor does **not**
+ * publish a general “chat with the LLM” HTTP API for dashboard `key_…` keys; those keys are for Cursor’s own
+ * services (Cloud Agents with a GitHub repo, Admin, etc.). For this script, use OpenAI or Anthropic directly.
  */
 
-const SYSTEM = `You are an expert resume editor. You rewrite and tailor CV content for a specific job.
-Rules:
-- Do not invent employers, degrees, dates, or tools the candidate did not imply in the resume text.
-- You may reorder emphasis, tighten wording, and align bullets with the job description.
+const SYSTEM = `You are an expert resume editor. You map the candidate's source resume into structured CV JSON for a specific job.
+Strict rules:
+- Copy every real-world fact from the resume source: full name, contact, employers, locations, dates, degrees, certifications, product names, metrics, and tech stack. Never substitute placeholders (no example.com, no 555 phone numbers, no fictional employers).
+- Preserve the candidate's primary platform and seniority from the source (e.g. Android/Kotlin-heavy stays that way). Do not "balance" into a generic iOS+Android profile unless the source clearly covers both.
+- You may tighten wording, split/join lines for clarity, and reorder bullets for job fit — but each bullet must remain faithful to something stated or clearly implied in the source; do not invent achievements.
+- Include every employment block from the source in "jobs" in the same chronological order unless the user text is clearly reverse-chronological (then keep that order).
 - Return ONLY valid JSON, no markdown fences, no commentary.`;
 
 const JSON_INSTRUCTION = `Return ONE JSON object for a styled Word CV (Arial, sections, job blocks).
@@ -39,177 +45,22 @@ PREFERRED full schema:
 
 FALLBACK compact schema (we map it automatically): "title", "summary", "skills", "experience" (string[]), "role_fit" — same rules as before; "title" can be "Name — Role" in one string.`;
 
-/** GitHub HTTPS URL for Cursor Cloud Agents, or null. */
-function resolveCursorRepository() {
-  return (
-    process.env.CURSOR_REPOSITORY ||
-    process.env.GITHUB_REPOSITORY ||
-    process.env.GITHUB_REPO_URL ||
-    githubHttpsFromGitOrigin() ||
-    null
-  );
-}
-
 function pickProvider() {
   const p = (process.env.AI_PROVIDER || "").toLowerCase();
-  if (p === "cursor") return "cursor";
+  if (p === "cursor") {
+    throw new Error(
+      "AI_PROVIDER=cursor is not supported in this script.\n\n" +
+        "Cursor does not provide a general-purpose LLM HTTP API for dashboard API keys. " +
+        "Use OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY — the same providers you can configure in Cursor → Settings → Models.",
+    );
+  }
   if (p === "anthropic") return "anthropic";
   if (p === "openai") return "openai";
+  if (p === "gemini" || p === "google") return "gemini";
   if (process.env.OPENAI_API_KEY) return "openai";
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  if (process.env.CURSOR_API_KEY && resolveCursorRepository()) return "cursor";
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
   return null;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** @returns {string | null} */
-function githubHttpsFromGitOrigin() {
-  try {
-    const raw = execFileSync("git", ["remote", "get-url", "origin"], {
-      encoding: "utf8",
-      cwd: projectRoot,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (raw.startsWith("https://github.com/")) {
-      return raw.replace(/\.git$/, "");
-    }
-    if (raw.startsWith("git@github.com:")) {
-      const pathPart = raw.slice("git@github.com:".length).replace(/\.git$/, "");
-      return `https://github.com/${pathPart}`;
-    }
-  } catch {
-    /* not a git repo or no origin */
-  }
-  return null;
-}
-
-function cursorBasicAuthHeader() {
-  const key = process.env.CURSOR_API_KEY;
-  if (!key) throw new Error("CURSOR_API_KEY is not set.");
-  return `Basic ${Buffer.from(`${key}:`, "utf8").toString("base64")}`;
-}
-
-async function callCursorCloudAgent(resumeText, jobDescription) {
-  const repo = resolveCursorRepository();
-  if (!repo) {
-    const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
-    const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
-    throw new Error(
-      "Cursor Cloud Agents need a GitHub repository URL, but none was found.\n\n" +
-        "Add this to your `.env` (uncomment and set your real repo):\n" +
-        "  CURSOR_REPOSITORY=https://github.com/YOUR_USER/YOUR_REPO\n\n" +
-        "This project folder is not a git clone (or `origin` is not GitHub), so the URL cannot be detected automatically.\n\n" +
-        (hasOpenAi || hasAnthropic
-          ? "Alternatively, set AI_PROVIDER=openai (or anthropic) in `.env` to use direct API calls instead of Cursor agents.\n"
-          : "To use OpenAI instead, add OPENAI_API_KEY to `.env` and set AI_PROVIDER=openai.\n"),
-    );
-  }
-
-  const auth = cursorBasicAuthHeader();
-  const ref = process.env.CURSOR_REF || "main";
-  const model = process.env.CURSOR_MODEL || "default";
-  const maxWaitMs = Number(process.env.CURSOR_AGENT_MAX_WAIT_MS || 600_000);
-  const pollMs = Number(process.env.CURSOR_AGENT_POLL_MS || 8_000);
-
-  const promptText = `${SYSTEM}
-
-${buildUserContent(resumeText, jobDescription)}
-
-Important: Do not modify repository files or open a pull request for this task. Reply with only the JSON object (you may wrap it in a single \`\`\`json code block).`;
-
-  const launchRes = await fetch("https://api.cursor.com/v0/agents", {
-    method: "POST",
-    headers: {
-      Authorization: auth,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      prompt: { text: promptText },
-      model,
-      source: { repository: repo, ref },
-    }),
-  });
-
-  const launchText = await launchRes.text();
-  if (!launchRes.ok) {
-    throw new Error(`Cursor Cloud Agents HTTP ${launchRes.status}: ${launchText.slice(0, 1200)}`);
-  }
-  let launchJson;
-  try {
-    launchJson = JSON.parse(launchText);
-  } catch {
-    throw new Error(`Cursor launch response was not JSON: ${launchText.slice(0, 400)}`);
-  }
-  const id = launchJson.id;
-  if (!id) {
-    throw new Error(`Cursor launch response missing id: ${launchText.slice(0, 500)}`);
-  }
-
-  const start = Date.now();
-  let finished = false;
-  while (Date.now() - start < maxWaitMs) {
-    await sleep(pollMs);
-    const stRes = await fetch(`https://api.cursor.com/v0/agents/${id}`, {
-      headers: { Authorization: auth },
-    });
-    const stText = await stRes.text();
-    if (!stRes.ok) {
-      throw new Error(`Cursor agent status HTTP ${stRes.status}: ${stText.slice(0, 800)}`);
-    }
-    const st = JSON.parse(stText);
-    const status = String(st.status || "").toUpperCase();
-    if (status === "FINISHED") {
-      finished = true;
-      break;
-    }
-    if (
-      status === "FAILED" ||
-      status === "ERROR" ||
-      status === "CANCELLED" ||
-      status === "DELETED"
-    ) {
-      throw new Error(
-        `Cursor agent ${id} ended with status ${st.status}: ${stText.slice(0, 1200)}`,
-      );
-    }
-  }
-
-  if (!finished) {
-    throw new Error(
-      `Cursor agent ${id} did not reach FINISHED within ${maxWaitMs}ms. Increase CURSOR_AGENT_MAX_WAIT_MS or check the agent in the Cursor dashboard.`,
-    );
-  }
-
-  const convRes = await fetch(`https://api.cursor.com/v0/agents/${id}/conversation`, {
-    headers: { Authorization: auth },
-  });
-  const convText = await convRes.text();
-  if (!convRes.ok) {
-    throw new Error(`Cursor conversation HTTP ${convRes.status}: ${convText.slice(0, 800)}`);
-  }
-  const conv = JSON.parse(convText);
-  const messages = Array.isArray(conv.messages) ? conv.messages : [];
-  const assistants = messages
-    .filter((m) => m.type === "assistant_message" && m.text)
-    .map((m) => String(m.text));
-
-  for (let i = assistants.length - 1; i >= 0; i--) {
-    const raw = assistants[i].trim();
-    try {
-      const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-      const jsonStr = fence ? fence[1].trim() : raw;
-      return jsonToProfile(JSON.parse(jsonStr));
-    } catch {
-      /* try earlier assistant message */
-    }
-  }
-
-  throw new Error(
-    `Could not parse CV JSON from Cursor agent ${id} conversation. Last assistant snippet: ${assistants.at(-1)?.slice(0, 500) || "(none)"}`,
-  );
 }
 
 function buildUserContent(resumeText, jobDescription) {
@@ -395,6 +246,94 @@ async function callAnthropic(resumeText, jobDescription) {
   return jsonToProfile(JSON.parse(jsonStr));
 }
 
+function geminiApiKey() {
+  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "").trim();
+}
+
+/** Appends human hints for common `fetch` failures (ENOTFOUND, timeouts). */
+function explainFetchFailure(err, apiName, hostname) {
+  const cause = err && typeof err === "object" && "cause" in err ? err.cause : null;
+  const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
+  const host =
+    hostname ||
+    (cause && typeof cause === "object" && "hostname" in cause ? String(cause.hostname) : "");
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return (
+      `\n\n${apiName}: DNS could not resolve ${host || "the API host"} (${code}). ` +
+      "This is a network/DNS issue on your machine, not the API key.\n" +
+      "Try: confirm Wi‑Fi/Ethernet, disconnect VPN or try another network, " +
+      "or set system DNS to 1.1.1.1 / 8.8.8.8. Verify with:\n" +
+      `  dig ${host || "generativelanguage.googleapis.com"} +short\n` +
+      "If you must use an HTTP(S) proxy, configure it for Node (e.g. HTTPS_PROXY) so `fetch` can reach Google."
+    );
+  }
+  if (code === "ETIMEDOUT" || code === "ECONNRESET") {
+    return `\n\n${apiName}: connection ${code} to ${host || "API"}. Check VPN, firewall, or captive portal.`;
+  }
+  return "";
+}
+
+async function callGemini(resumeText, jobDescription) {
+  const key = geminiApiKey();
+  if (!key) throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) is not set.");
+  const model = (process.env.GEMINI_MODEL || "gemini-flash-latest").replace(/^models\//, "");
+  const base =
+    (process.env.GEMINI_API_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/$/, "");
+  const url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  let hostname = "generativelanguage.googleapis.com";
+  try {
+    hostname = new URL(base.startsWith("http") ? base : `https://${base}`).hostname;
+  } catch {
+    /* keep default */
+  }
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: buildUserContent(resumeText, jobDescription) }],
+          },
+        ],
+        generationConfig: {
+          temperature: Number(process.env.AI_TEMPERATURE || 0.35),
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+  } catch (e) {
+    const baseMsg = e instanceof Error ? e.message : String(e);
+    throw new Error(`${baseMsg}${explainFetchFailure(e, "Gemini", hostname)}`);
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Gemini HTTP ${res.status}: ${text.slice(0, 800)}`);
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`Gemini response was not JSON: ${text.slice(0, 200)}`);
+  }
+  const parts = data.candidates?.[0]?.content?.parts;
+  const rawText = Array.isArray(parts)
+    ? parts.map((p) => p?.text).filter(Boolean).join("")
+    : "";
+  if (!rawText.trim()) {
+    throw new Error(`Unexpected Gemini response: ${text.slice(0, 400)}`);
+  }
+  let jsonStr = rawText.trim();
+  const fence = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) jsonStr = fence[1].trim();
+  return jsonToProfile(JSON.parse(jsonStr));
+}
+
 /**
  * @param {{ resumeText: string, jobDescription: string }} input
  * @returns {Promise<{ profile: Record<string, unknown> }>}
@@ -403,30 +342,23 @@ export async function generateTailoredCvWithAi(input) {
   const { resumeText, jobDescription } = input;
   const provider = pickProvider();
   if (!provider) {
-    if (process.env.CURSOR_API_KEY && !resolveCursorRepository()) {
-      throw new Error(
-        "CURSOR_API_KEY is set, but Cursor Cloud Agents need a GitHub repo URL.\n\n" +
-          "Add to `.env`:\n" +
-          "  CURSOR_REPOSITORY=https://github.com/YOUR_USER/YOUR_REPO\n\n" +
-          "Or use OpenAI instead (no repo required):\n" +
-          "  OPENAI_API_KEY=sk-...\n" +
-          "  AI_PROVIDER=openai\n",
-      );
-    }
     throw new Error(
-      "No AI provider is configured.\n\n" +
+      "No LLM API key is configured.\n\n" +
         "Add to `.env` (see `.env.example`):\n" +
-        "  • OPENAI_API_KEY — recommended for CV generation, or\n" +
-        "  • ANTHROPIC_API_KEY, or\n" +
-        "  • CURSOR_API_KEY + CURSOR_REPOSITORY (Cloud Agents only work with a GitHub repo)\n\n" +
-        "Optional: AI_PROVIDER=openai|anthropic|cursor when multiple keys exist.",
+        "  OPENAI_API_KEY=sk-...\n" +
+        "or\n" +
+        "  ANTHROPIC_API_KEY=sk-ant-...\n" +
+        "or\n" +
+        "  GEMINI_API_KEY=...   (Google AI Studio)\n\n" +
+        "Optional: OPENAI_BASE_URL; AI_PROVIDER=openai|anthropic|gemini when several keys exist.\n\n" +
+        "Note: CURSOR_API_KEY / Cursor dashboard keys are not used here — there is no Cursor-hosted chat API for arbitrary scripts.",
     );
   }
   let profile;
-  if (provider === "cursor") {
-    profile = await callCursorCloudAgent(resumeText, jobDescription);
-  } else if (provider === "openai") {
+  if (provider === "openai") {
     profile = await callOpenAI(resumeText, jobDescription);
+  } else if (provider === "gemini") {
+    profile = await callGemini(resumeText, jobDescription);
   } else {
     profile = await callAnthropic(resumeText, jobDescription);
   }

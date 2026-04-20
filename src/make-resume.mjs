@@ -13,8 +13,10 @@
  *   npm run build
  *
  * Inputs:
- *   ./data/resume.txt       — sections: TITLE, SUMMARY, SKILLS, EXPERIENCE (bullets with leading "- ")
- *   ./data/description.txt — job description; used to emphasize matching skills and reorder bullets
+ *   ./data/resume.txt — either legacy blocks (TITLE, SUMMARY, SKILLS, EXPERIENCE with "- " bullets) or a narrative CV
+ *     with lines like PROFESSIONAL SUMMARY, CORE SKILLS, FEATURED PROJECT, PROFESSIONAL EXPERIENCE (role + company +
+ *     "• " bullets; wrapped bullet lines without "• " are merged into the previous bullet). Save the file before `npm run build`.
+ *   ./data/description.txt — job description; used for role-fit wording and bullet ordering (non-AI) or AI tailoring (USE_AI=1)
  *
  * Outputs:
  *   ./out/michael_samuel_cv.docx
@@ -24,12 +26,19 @@
  * Set CV_LAYOUT=simple for the older minimal headings + bullets layout.
  *
  * AI tailoring (optional), USE_AI=1:
- *   • CURSOR_API_KEY — Cursor Cloud Agents (`https://api.cursor.com/v0/agents`). Set CURSOR_REPOSITORY
- *     to https://github.com/owner/repo if origin is not GitHub; optional CURSOR_REF, CURSOR_MODEL.
- *   • OPENAI_API_KEY / ANTHROPIC_API_KEY — direct provider APIs (optional OPENAI_MODEL, etc.).
- *   • AI_PROVIDER=cursor|openai|anthropic when more than one credential is set.
+ *   • OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY (optional *_MODEL / OPENAI_BASE_URL / GEMINI_API_BASE_URL).
+ *   • AI_PROVIDER=openai|anthropic|gemini when several keys are set.
  *   • Optional: create `.env` in the project root with those variables — it is loaded automatically
  *     (shell exports still win if the variable is already set).
+ *
+ * Fixed contact (styled DOCX only), USE_FIXED_CONTACT=1 in `.env`:
+ *   CONTACT_PHONE, CONTACT_PORTFOLIO, CONTACT_LINKEDIN, CONTACT_GITHUB, CONTACT_EMAIL — overrides preamble / AI
+ *   for the gray contact line (phone · email) and hyperlink row (Portfolio, LinkedIn, GitHub).
+ *
+ * Fixed featured project (MegaPlug / Play Store), USE_FIXED_FEATURED_PROJECT=1:
+ *   FEATURED_PROJECT_URL (e.g. play.google.com/.../id=com.mega.plug) plus optional FEATURED_PROJECT_TITLE,
+ *   FEATURED_PROJECT_URL_LABEL, FEATURED_PROJECT_DESCRIPTION — overrides URL (and optional fields) for the
+ *   Featured Project section; merges title/description from resume or AI when overrides are omitted.
  */
 
 import fs from "node:fs";
@@ -141,36 +150,275 @@ function descriptionTokenSet(description) {
   return new Set(tokens(description));
 }
 
+const SECTION_HEADER_TYPES = [
+  ["EDUCATION & CERTIFICATIONS", "education"],
+  ["PROFESSIONAL SUMMARY", "summary"],
+  ["PROFESSIONAL EXPERIENCE", "experience"],
+  ["FEATURED PROJECT", "featured"],
+  ["TECHNICAL TOOLING", "tooling"],
+  ["CORE SKILLS", "skills"],
+  ["TITLE", "title"],
+  ["SUMMARY", "summary"],
+  ["SKILLS", "skills"],
+  ["EXPERIENCE", "experience"],
+  ["EDUCATION", "education"],
+];
+
+/** @param {string} line */
+function resumeSectionType(line) {
+  const u = line.trim().toUpperCase();
+  for (const [h, type] of SECTION_HEADER_TYPES) {
+    if (u === h.toUpperCase()) return type;
+  }
+  return null;
+}
+
+function isBulletLine(line) {
+  const t = line.trim();
+  return /^[•\-\*·]\s/.test(t) || /^[-–]\s/.test(t);
+}
+
+function stripBullet(line) {
+  return line.trim().replace(/^[•\-\*·]\s*|^[-–]\s*/, "").trim();
+}
+
+/** Heuristic: new role header vs wrapped continuation of a bullet paragraph. */
+function looksLikeJobTitleLine(line) {
+  const t = line.trim();
+  if (!t || isBulletLine(t)) return false;
+  if (/^[a-z(]/.test(t)) return false;
+  const hasDate = /(20\d{2}|Present|\bJan\b|\bFeb\b|\bMar\b|\bApr\b|\bMay\b|\bJun\b|\bJul\b|\bAug\b|\bSep\b|\bOct\b|\bNov\b|\bDec\b)/i.test(
+    t,
+  );
+  const hasRole = /(engineer|developer|lead|architect|manager|intern|consultant|specialist|analyst)/i.test(t);
+  return hasDate && hasRole;
+}
+
 /**
- * @returns {{ title: string, summary: string, skills: string, experience: string[] }}
+ * Job blocks: title line (often with dates), company line, then • bullets — repeated.
+ * @param {string} body
+ * @returns {{ title: string, company: string, period: string, bullets: string[] }[]}
  */
-function parseResume(content) {
-  const blocks = content.split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
-  const data = {
-    title: "",
-    summary: "",
-    skills: "",
-    experience: [],
+function parseExperienceJobs(body) {
+  const lines = body
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  /** Legacy "EXPERIENCE" blocks are often only "- " bullets — job-block parser would yield empty titles. */
+  if (lines.length > 0 && lines.every(isBulletLine)) {
+    return [];
+  }
+  const jobs = [];
+  /** @type {{ title: string, company: string, period: string, bullets: string[] } | null} */
+  let job = null;
+
+  const flush = () => {
+    if (job && job.bullets.length > 0) {
+      jobs.push({
+        title: job.title,
+        company: job.company,
+        period: job.period,
+        bullets: [...job.bullets],
+      });
+    }
+    job = null;
   };
 
-  for (const block of blocks) {
-    const lines = block.split("\n");
-    const section = lines[0].trim().toUpperCase();
-    const body = lines.slice(1).join("\n").trim();
+  const splitTitlePeriod = (titleLine) => {
+    const re =
+      /\s+((?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{4})\s*[–-]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{4}|\d{4})|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s*[–-]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}|\d{4})|\d{4}\s*[–-]\s*(?:Present|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{4}|\d{4}))\s*$/i;
+    const m = titleLine.match(re);
+    if (m) {
+      return { title: titleLine.slice(0, m.index).trim(), period: m[1].trim().replace(/\s+/g, " ") };
+    }
+    return { title: titleLine.trim(), period: "" };
+  };
 
-    if (section === "TITLE") data.title = body;
-    else if (section === "SUMMARY") data.summary = body;
-    else if (section === "SKILLS") data.skills = body.replace(/\s+/g, " ");
-    else if (section === "EXPERIENCE") {
-      for (const line of body.split("\n")) {
-        const t = line.trim();
-        if (t.startsWith("-")) data.experience.push(t.replace(/^-\s*/, "").trim());
-        else if (t) data.experience.push(t);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isBulletLine(line)) {
+      if (!job) job = { title: "", company: "", period: "", bullets: [] };
+      job.bullets.push(stripBullet(line));
+      continue;
+    }
+    if (job && job.bullets.length > 0 && !looksLikeJobTitleLine(line)) {
+      job.bullets[job.bullets.length - 1] = `${job.bullets[job.bullets.length - 1]} ${line.trim()}`.trim();
+      continue;
+    }
+    if (job && job.bullets.length > 0) flush();
+    if (!job) {
+      const titleLine = line;
+      const next = i + 1 < lines.length ? lines[i + 1] : "";
+      const titleParts = splitTitlePeriod(titleLine);
+      if (next && !isBulletLine(next)) {
+        job = {
+          title: titleParts.title,
+          company: next,
+          period: titleParts.period,
+          bullets: [],
+        };
+        i++;
+      } else {
+        job = { title: titleParts.title, company: "", period: titleParts.period, bullets: [] };
       }
+    } else if (job && job.bullets.length === 0 && !job.company) {
+      job.company = line;
+    } else if (job && job.bullets.length === 0) {
+      job.title = `${job.title} ${line}`.trim();
+    }
+  }
+  flush();
+  return jobs;
+}
+
+function parseLegacyExperienceBullets(body) {
+  const out = [];
+  for (const line of body.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t.startsWith("-")) out.push(t.replace(/^-\s*/, "").trim());
+    else if (out.length) out[out.length - 1] += ` ${t}`;
+    else out.push(t);
+  }
+  return out;
+}
+
+function joinSectionLines(arr) {
+  return (arr || [])
+    .map((l) => l.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function extractLinksFromHeaderText(text) {
+  const links = [];
+  const join = String(text || "");
+  const gh = join.match(/github\s*\(\s*([^)]+)\s*\)/i);
+  if (gh) {
+    const u = gh[1].trim().replace(/^@/, "");
+    if (u) links.push({ text: "GitHub", url: `https://github.com/${u}` });
+  }
+  const li = join.match(/https?:\/\/(?:www\.)?linkedin\.com\/[^\s)\]]+/i);
+  if (li) links.push({ text: "LinkedIn", url: li[0] });
+  return links;
+}
+
+function parseFeaturedBlock(lines) {
+  const arr = lines.map((l) => l.trim()).filter(Boolean);
+  if (!arr.length) return null;
+  const first = arr[0];
+  const desc = arr.slice(1).join("\n").trim();
+  const title = first.replace(/\s*·\s*Google Play\s*$/i, "").trim();
+  return {
+    title,
+    url: "",
+    url_label: "Google Play",
+    description: desc || "—",
+  };
+}
+
+function parseEducationBlock(lines) {
+  const arr = lines.map((l) => l.trim()).filter(Boolean);
+  if (!arr.length) return null;
+  const degree_line = arr[0];
+  const bullets = [];
+  for (let i = 1; i < arr.length; i++) {
+    const t = arr[i];
+    bullets.push(isBulletLine(t) ? stripBullet(t) : t);
+  }
+  return { degree_line, bullets };
+}
+
+function toolingRowsFromLines(lines) {
+  const text = joinSectionLines(lines);
+  if (!text) return [];
+  const rows = [];
+  for (const line of text.split(/\n/).map((l) => l.trim()).filter(Boolean)) {
+    const m = line.match(/^([^:]+):\s*(.+)$/);
+    if (m) rows.push({ label: m[1].trim(), value: m[2].trim() });
+    else if (rows.length) rows[rows.length - 1].value += ` ${line}`;
+  }
+  return rows;
+}
+
+/**
+ * Supports:
+ * - Legacy blocks: TITLE / SUMMARY / SKILLS / EXPERIENCE (with "- " bullets).
+ * - Narrative CV: preamble (name, subtitle, contact, links), PROFESSIONAL SUMMARY, CORE SKILLS,
+ *   FEATURED PROJECT, PROFESSIONAL EXPERIENCE (job blocks + • bullets), TECHNICAL TOOLING, EDUCATION.
+ * @returns {Record<string, unknown>}
+ */
+function parseResume(content) {
+  const rawLines = content.split(/\r?\n/);
+  /** @type {Record<string, string[]>} */
+  const buckets = {
+    preamble: [],
+    title: [],
+    summary: [],
+    skills: [],
+    experience: [],
+    featured: [],
+    tooling: [],
+    education: [],
+  };
+  let section = "preamble";
+
+  for (const line of rawLines) {
+    const ht = resumeSectionType(line);
+    if (ht) {
+      section = ht;
+      continue;
+    }
+    buckets[section].push(line);
+  }
+
+  const preambleJoined = joinSectionLines(buckets.preamble);
+  const preambleLines = preambleJoined.split(/\n/).map((l) => l.trim()).filter(Boolean);
+
+  let title = joinSectionLines(buckets.title).replace(/\s+/g, " ").trim();
+  if (!title && preambleLines.length >= 1) {
+    title =
+      preambleLines.length >= 2
+        ? `${preambleLines[0]} | ${preambleLines[1]}`
+        : preambleLines[0];
+  }
+
+  const contact_line =
+    preambleLines.length >= 3 ? preambleLines[2] : preambleLines.length === 2 && /@|\+?\d/.test(preambleLines[1])
+      ? preambleLines[1]
+      : "";
+
+  const links = extractLinksFromHeaderText(preambleJoined);
+
+  const summary = joinSectionLines(buckets.summary).trim();
+  const skills = joinSectionLines(buckets.skills).trim();
+
+  const experienceBody = joinSectionLines(buckets.experience);
+  let jobs = parseExperienceJobs(experienceBody);
+  let experience = jobs.flatMap((j) => j.bullets);
+  if (jobs.length === 0 && experienceBody) {
+    experience = parseLegacyExperienceBullets(experienceBody);
+    if (experience.length) {
+      jobs = [{ title: "Professional Experience", company: "", period: "", bullets: experience }];
     }
   }
 
-  return data;
+  const featured_project = parseFeaturedBlock(buckets.featured);
+  const technical_tooling = toolingRowsFromLines(buckets.tooling);
+  const education = parseEducationBlock(buckets.education);
+
+  return {
+    title,
+    contact_line,
+    links,
+    summary,
+    skills,
+    experience,
+    jobs,
+    featured_project,
+    technical_tooling,
+    education,
+  };
 }
 
 function loadResume() {
@@ -562,6 +810,83 @@ async function convertWrittenDocxToPdf(docxPath, expectedPdfPath) {
   throw out;
 }
 
+function withHttps(url) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  return `https://${u}`;
+}
+
+/**
+ * Styled CV only: replaces `contact_line` and `links` when `USE_FIXED_CONTACT=1`.
+ * @param {Record<string, unknown> | null} profile
+ */
+function applyFixedContactFromEnv(profile) {
+  if (!profile || process.env.USE_FIXED_CONTACT !== "1") return profile;
+  const phone = (process.env.CONTACT_PHONE || "").trim();
+  const portfolio = withHttps(process.env.CONTACT_PORTFOLIO || "");
+  const linkedin = withHttps(process.env.CONTACT_LINKEDIN || "");
+  const github = withHttps(process.env.CONTACT_GITHUB || "");
+  const email = (process.env.CONTACT_EMAIL || "").trim();
+  const missing = [];
+  if (!phone) missing.push("CONTACT_PHONE");
+  if (!portfolio) missing.push("CONTACT_PORTFOLIO");
+  if (!linkedin) missing.push("CONTACT_LINKEDIN");
+  if (!github) missing.push("CONTACT_GITHUB");
+  if (!email) missing.push("CONTACT_EMAIL");
+  if (missing.length) {
+    throw new Error(
+      `USE_FIXED_CONTACT=1 requires these in .env: ${missing.join(", ")} (see .env.example).`,
+    );
+  }
+  profile.contact_line = `${phone} · ${email}`;
+  profile.links = [
+    { text: "Portfolio", url: portfolio },
+    { text: "LinkedIn", url: linkedin },
+    { text: "GitHub", url: github },
+  ];
+  return profile;
+}
+
+/**
+ * Styled CV only: sets Featured Project Play Store URL (and optional title/description) when
+ * `USE_FIXED_FEATURED_PROJECT=1`. Merges onto existing `profile.featured_project` from resume / AI.
+ * @param {Record<string, unknown> | null} profile
+ */
+function applyFixedFeaturedProjectFromEnv(profile) {
+  if (!profile || process.env.USE_FIXED_FEATURED_PROJECT !== "1") return profile;
+  const rawUrl = (process.env.FEATURED_PROJECT_URL || process.env.MEGAPLUG_PLAY_URL || "").trim();
+  if (!rawUrl) {
+    throw new Error(
+      "USE_FIXED_FEATURED_PROJECT=1 requires FEATURED_PROJECT_URL (or MEGAPLUG_PLAY_URL) in .env (see .env.example).",
+    );
+  }
+  const url = withHttps(rawUrl);
+  const urlLabel = (process.env.FEATURED_PROJECT_URL_LABEL || "Google Play").trim() || "Google Play";
+  const titleOverride = (process.env.FEATURED_PROJECT_TITLE || "").trim();
+  const descOverride = (process.env.FEATURED_PROJECT_DESCRIPTION || "").trim();
+
+  const existing =
+    profile.featured_project && typeof profile.featured_project === "object"
+      ? { ...profile.featured_project }
+      : {};
+  const title =
+    titleOverride ||
+    String(existing.title || "").trim() ||
+    "MegaPlug — EV Charging Management Platform";
+  const description =
+    descOverride || String(existing.description || "").trim() || "—";
+
+  profile.featured_project = {
+    ...existing,
+    title,
+    url,
+    url_label: urlLabel,
+    description,
+  };
+  return profile;
+}
+
 async function main() {
   loadRootEnvFile();
   ensureDir(outDir);
@@ -595,6 +920,9 @@ async function main() {
     );
     profile = profileFromParsedResume(resume, tailoringParagraph);
   }
+
+  applyFixedContactFromEnv(profile);
+  applyFixedFeaturedProjectFromEnv(profile);
 
   const docxPath = path.join(outDir, `${outputBase}.docx`);
   const pdfPath = path.join(outDir, `${outputBase}.pdf`);

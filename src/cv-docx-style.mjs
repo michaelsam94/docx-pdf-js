@@ -121,31 +121,77 @@ function linkRuns(links) {
   ];
 }
 
+/** Split "Label: value" lines into rows; continuation lines append to previous value. */
+function coreSkillsRowsFromText(skillsText) {
+  const skills = String(skillsText || "").trim();
+  if (!skills) return [{ label: "Skills", value: "—" }];
+  const lines = skills.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const rows = [];
+  for (const line of lines) {
+    const m = line.match(/^([^:]+):\s*(.+)$/);
+    if (m) rows.push({ label: m[1].trim(), value: m[2].trim() });
+    else if (rows.length) rows[rows.length - 1].value += ` ${line}`;
+    else rows.push({ label: "Skills", value: line });
+  }
+  return rows.length ? rows : [{ label: "Skills", value: skills.replace(/\s+/g, " ") }];
+}
+
 /**
- * @param {{ title: string, summary: string, skills: string, experience: string[] }} resume
+ * @param {{
+ *   title: string,
+ *   summary: string,
+ *   skills: string,
+ *   experience: string[],
+ *   contact_line?: string,
+ *   links?: { text: string, url: string }[],
+ *   core_skills?: { label: string, value: string }[],
+ *   jobs?: { title: string, company: string, period: string, bullets: string[] }[],
+ *   featured_project?: Record<string, unknown> | null,
+ *   technical_tooling?: { label: string, value: string }[],
+ *   education?: { degree_line: string, bullets: string[] } | null,
+ * }} resume
  * @param {string} tailoringParagraph
  */
 export function profileFromParsedResume(resume, tailoringParagraph) {
   const { name, subtitle } = splitNameSubtitle(resume.title || "Resume");
+  const core_skills = Array.isArray(resume.core_skills) && resume.core_skills.length
+    ? resume.core_skills
+    : coreSkillsRowsFromText(resume.skills);
 
-  return {
-    name,
-    subtitle,
-    contact_line: "",
-    links: [],
-    professional_summary: (resume.summary || "").trim() || "—",
-    core_skills: [{ label: "Skills", value: (resume.skills || "").trim() || "—" }],
-    featured_project: null,
-    jobs: [
+  let jobs;
+  if (Array.isArray(resume.jobs) && resume.jobs.length > 0) {
+    jobs = resume.jobs.map((j) => ({
+      title: String(j?.title || "").trim() || "Role",
+      company: String(j?.company || "").trim(),
+      period: String(j?.period || "").trim(),
+      bullets: Array.isArray(j?.bullets) ? j.bullets.map((b) => String(b).trim()).filter(Boolean) : [],
+    }));
+  } else {
+    jobs = [
       {
-        title: "Experience",
+        title: "Professional Experience",
         company: "",
         period: "",
         bullets: resume.experience.length ? resume.experience : ["—"],
       },
-    ],
-    technical_tooling: [],
-    education: null,
+    ];
+  }
+
+  const technical_tooling = Array.isArray(resume.technical_tooling) && resume.technical_tooling.length
+    ? resume.technical_tooling
+    : [];
+
+  return {
+    name,
+    subtitle,
+    contact_line: String(resume.contact_line || "").trim(),
+    links: Array.isArray(resume.links) ? resume.links : [],
+    professional_summary: (resume.summary || "").trim() || "—",
+    core_skills,
+    featured_project: resume.featured_project && typeof resume.featured_project === "object" ? resume.featured_project : null,
+    jobs,
+    technical_tooling,
+    education: resume.education && typeof resume.education === "object" ? resume.education : null,
     role_fit: (tailoringParagraph || "").trim(),
   };
 }
