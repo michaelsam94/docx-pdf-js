@@ -1,0 +1,19 @@
+{
+  "name": "docx-pdf-js",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./src/make-resume.mjs",
+    "build:docx": "SKIP_PDF=1 node ./src/make-resume.mjs",
+    "build:ai": "USE_AI=1 node ./src/make-resume.mjs",
+    "build:ai:docx": "SKIP_PDF=1 USE_AI=1 node ./src/make-resume.mjs",
+    "ai": "node ./src/ai-cv.mjs",
+    "pdf": "bash ./scripts/cv-to-pdf.sh",
+    "pdf:fallback": "node ./scripts/cv-pdf-fallback.mjs"
+  },
+  "dependencies": {
+    "docx": "^9.6.1",
+    "pdfkit": "^0.15.0"
+  }
+}

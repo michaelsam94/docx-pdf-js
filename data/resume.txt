@@ -1,0 +1,14 @@
+TITLE
+Michael Samuel — Mobile Developer
+
+SUMMARY
+Experienced mobile engineer focused on shipping reliable iOS and Android apps with measurable quality improvements, strong collaboration with product and design, and disciplined release practices.
+
+SKILLS
+Swift, Kotlin, Firebase, REST APIs, Git, CI basics, profiling, logging, App Store / Play Console
+
+EXPERIENCE
+- Owned feature delivery end-to-end: requirements, implementation, release, and post-release monitoring.
+- Reduced crashes and latency using profiling, structured logging, feature flags, and careful rollout.
+- Partnered with backend teams on REST contracts, error handling, and performance-sensitive mobile flows.
+- Mentored junior developers on code review, testing habits, and release hygiene.

@@ -1,0 +1,1 @@
+We are hiring a senior mobile developer to own features on our iOS and Android apps. You will work closely with product and backend teams, ship REST integrations, and improve performance and crash rates. Experience with Swift, Kotlin, Firebase, and solid CI/release practices is a strong plus.
